@@ -122,13 +122,14 @@ def interface_matches(rule, ip):
     # No interface restriction
     return True
 
-def ipset_matches(rule, ip):
+def ipset_matches(rule, ip, debug=False):
     """
     Check if an IP matches an ipset referenced in the rule.
     
     Args:
         rule (str): The iptables rule string to check.
         ip (str): The IP address to test.
+        debug (bool): Enable debug output.
         
     Returns:
         bool: True if IP matches the ipset or no ipset is used, False otherwise.
@@ -155,6 +156,8 @@ def ipset_matches(rule, ip):
         return True  # No ipset used
     
     members = get_ipset_content(set_name)
+    if debug:
+        print(f"DEBUG ipset_matches: set_name={set_name}, members={members[:3]}...")
     
     try:
         test_ip = ipaddress.ip_address(ip)
@@ -164,14 +167,25 @@ def ipset_matches(rule, ip):
                 if '/' in member:
                     network = ipaddress.ip_network(member, strict=False)
                     if test_ip in network:
+                        if debug:
+                            print(f"DEBUG ipset_matches: {ip} found in network {member}")
                         return True
                 else:
                     if test_ip == ipaddress.ip_address(member):
+                        if debug:
+                            print(f"DEBUG ipset_matches: {ip} matches exact IP {member}")
                         return True
-            except ValueError:
+            except ValueError as e:
+                if debug:
+                    print(f"DEBUG ipset_matches: ValueError for member {member}: {e}")
                 continue  # Skip invalid entries
+        
+        if debug:
+            print(f"DEBUG ipset_matches: {ip} NOT found in ipset {set_name}")
         return False
-    except ValueError:
+    except ValueError as e:
+        if debug:
+            print(f"DEBUG ipset_matches: ValueError for test IP {ip}: {e}")
         return False
 
 def ip_matches(rule, ip):
