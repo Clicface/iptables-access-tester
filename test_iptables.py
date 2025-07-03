@@ -67,13 +67,25 @@ def get_ipset_content(set_name):
         members = []
         in_members = False
         for line in lines:
+            line = line.strip()
             if line.startswith('Members:'):
                 in_members = True
                 continue
-            if in_members and line.strip():
+            elif line.startswith('Type:') or line.startswith('Revision:') or line.startswith('Header:'):
+                in_members = False
+                continue
+            elif in_members and line:
                 # Extract IP/network from the line (ignore timeout and other info)
-                ip_part = line.strip().split()[0]
-                members.append(ip_part)
+                # Handle formats like:
+                # 192.168.1.1
+                # 192.168.1.0/24
+                # 192.168.1.1 timeout 300
+                parts = line.split()
+                if parts:
+                    ip_part = parts[0]
+                    # Validate that it looks like an IP or network
+                    if '.' in ip_part or ':' in ip_part:  # IPv4 or IPv6
+                        members.append(ip_part)
         
         return members
     except subprocess.CalledProcessError:
@@ -121,12 +133,27 @@ def ipset_matches(rule, ip):
     Returns:
         bool: True if IP matches the ipset or no ipset is used, False otherwise.
     """
-    # Look for ipset match: -m set --match-set SETNAME src
-    ipset_match = re.search(r'-m set --match-set (\S+) src', rule)
-    if not ipset_match:
+    # Look for various ipset match patterns
+    # -m set --match-set SETNAME src
+    # -m set --match-set SETNAME src,dst
+    # -m set --match-set SETNAME dst
+    ipset_patterns = [
+        r'-m set --match-set (\S+) src(?:,dst)?',
+        r'-m set --match-set (\S+) dst(?:,src)?',
+        r'--match-set (\S+) src(?:,dst)?',
+        r'--match-set (\S+) dst(?:,src)?'
+    ]
+    
+    set_name = None
+    for pattern in ipset_patterns:
+        match = re.search(pattern, rule)
+        if match:
+            set_name = match.group(1)
+            break
+    
+    if not set_name:
         return True  # No ipset used
     
-    set_name = ipset_match.group(1)
     members = get_ipset_content(set_name)
     
     try:
@@ -164,18 +191,24 @@ def ip_matches(rule, ip):
         Supports both single IPs and CIDR notation networks.
         Also handles ipset matches.
     """
-    # First check ipset matches
-    if not ipset_matches(rule, ip):
-        return False
+    # Check traditional -s source IP matches
+    has_source_restriction = '-s' in rule
+    source_ip_matches = True
     
-    # Then check traditional -s source IP matches
-    if '-s' not in rule:
-        return True  # pas de filtre IP => match tout
-    try:
-        source_ip = rule.split('-s')[1].split()[0]
-        return ipaddress.ip_address(ip) in ipaddress.ip_network(source_ip, strict=False)
-    except Exception:
-        return False
+    if has_source_restriction:
+        try:
+            source_ip = rule.split('-s')[1].split()[0]
+            source_ip_matches = ipaddress.ip_address(ip) in ipaddress.ip_network(source_ip, strict=False)
+        except Exception:
+            source_ip_matches = False
+    
+    # Check ipset matches
+    ipset_ok = ipset_matches(rule, ip)
+    
+    # If both -s and ipset are present, both must match
+    # If only one is present, only that one needs to match
+    # If neither is present, it matches all IPs
+    return source_ip_matches and ipset_ok
 
 def port_matches(rule, port):
     """
@@ -315,14 +348,43 @@ def test_iptables(ip, port, debug=False):
             debug_info.append(f"    Interface: {interface_ok}, IP: {ip_ok}, Port: {port_ok}, State: {state_ok}")
             
             # Show ipset details if present
-            ipset_match = re.search(r'-m set --match-set (\S+) src', rule)
-            if ipset_match:
-                set_name = ipset_match.group(1)
-                members = get_ipset_content(set_name)
-                if members:
-                    debug_info.append(f"    IPset '{set_name}' contains: {', '.join(members[:5])}{'...' if len(members) > 5 else ''}")
-                else:
-                    debug_info.append(f"    IPset '{set_name}' is empty or not accessible")
+            ipset_patterns = [
+                r'-m set --match-set (\S+) src(?:,dst)?',
+                r'-m set --match-set (\S+) dst(?:,src)?',
+                r'--match-set (\S+) src(?:,dst)?',
+                r'--match-set (\S+) dst(?:,src)?'
+            ]
+            
+            for pattern in ipset_patterns:
+                ipset_match = re.search(pattern, rule)
+                if ipset_match:
+                    set_name = ipset_match.group(1)
+                    members = get_ipset_content(set_name)
+                    if members:
+                        debug_info.append(f"    IPset '{set_name}' contains: {', '.join(members[:5])}{'...' if len(members) > 5 else ''}")
+                        # Check if our IP matches
+                        ip_in_set = False
+                        try:
+                            test_ip = ipaddress.ip_address(ip)
+                            for member in members:
+                                try:
+                                    if '/' in member:
+                                        network = ipaddress.ip_network(member, strict=False)
+                                        if test_ip in network:
+                                            ip_in_set = True
+                                            break
+                                    else:
+                                        if test_ip == ipaddress.ip_address(member):
+                                            ip_in_set = True
+                                            break
+                                except ValueError:
+                                    continue
+                        except ValueError:
+                            pass
+                        debug_info.append(f"    IP {ip} {'✅ FOUND' if ip_in_set else '❌ NOT FOUND'} in ipset '{set_name}'")
+                    else:
+                        debug_info.append(f"    IPset '{set_name}' is empty or not accessible")
+                    break
             
         if interface_ok and ip_ok and port_ok and state_ok:
             result = ""
