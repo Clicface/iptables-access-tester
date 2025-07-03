@@ -188,13 +188,14 @@ def ipset_matches(rule, ip, debug=False):
             print(f"DEBUG ipset_matches: ValueError for test IP {ip}: {e}")
         return False
 
-def ip_matches(rule, ip):
+def ip_matches(rule, ip, debug=False):
     """
     Check if a given IP address matches the source IP filter in an iptables rule.
     
     Args:
         rule (str): The iptables rule string to check.
         ip (str): The source IP address to test against the rule.
+        debug (bool): Enable debug output.
         
     Returns:
         bool: True if the IP matches the rule's source filter or if no source filter exists,
@@ -220,7 +221,11 @@ def ip_matches(rule, ip):
             source_ip_matches = False
     
     # Check ipset matches
-    ipset_ok = ipset_matches(rule, ip, debug=False)
+    ipset_ok = ipset_matches(rule, ip, debug=debug)
+    
+    if debug:
+        print(f"DEBUG ip_matches: has_ipset={has_ipset}, has_source_restriction={has_source_restriction}")
+        print(f"DEBUG ip_matches: source_ip_matches={source_ip_matches}, ipset_ok={ipset_ok}")
     
     # Logic:
     # - If there's an ipset restriction, the IP must be in the ipset
@@ -230,15 +235,24 @@ def ip_matches(rule, ip):
     
     if has_ipset and has_source_restriction:
         # Both restrictions present - both must match
-        return source_ip_matches and ipset_ok
+        result = source_ip_matches and ipset_ok
+        if debug:
+            print(f"DEBUG ip_matches: both restrictions, returning {result}")
+        return result
     elif has_ipset:
         # Only ipset restriction - IP must be in ipset
+        if debug:
+            print(f"DEBUG ip_matches: only ipset restriction, returning {ipset_ok}")
         return ipset_ok
     elif has_source_restriction:
         # Only -s restriction - IP must match -s
+        if debug:
+            print(f"DEBUG ip_matches: only source restriction, returning {source_ip_matches}")
         return source_ip_matches
     else:
         # No restrictions - matches all IPs
+        if debug:
+            print(f"DEBUG ip_matches: no restrictions, returning True")
         return True
 
 def port_matches(rule, port):
@@ -369,7 +383,7 @@ def test_iptables(ip, port, debug=False):
             
         # Check each matching condition
         interface_ok = interface_matches(rule, ip)
-        ip_ok = ip_matches(rule, ip)
+        ip_ok = ip_matches(rule, ip, debug=debug)
         port_ok = port_matches(rule, port)
         state_ok = connection_state_matches(rule)
         
