@@ -209,8 +209,8 @@ def ip_matches(rule, ip, debug=False):
     # Check if there's an ipset restriction
     has_ipset = re.search(r'-m set --match-set \S+ src', rule) is not None
     
-    # Check traditional -s source IP matches
-    has_source_restriction = '-s' in rule
+    # Check traditional -s source IP matches (be careful not to match 'src' in ipset rules)
+    has_source_restriction = re.search(r'\s-s\s', rule) is not None
     source_ip_matches = True
     
     if has_source_restriction:
