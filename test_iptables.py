@@ -220,7 +220,7 @@ def ip_matches(rule, ip):
             source_ip_matches = False
     
     # Check ipset matches
-    ipset_ok = ipset_matches(rule, ip)
+    ipset_ok = ipset_matches(rule, ip, debug=False)
     
     # Logic:
     # - If there's an ipset restriction, the IP must be in the ipset
@@ -378,7 +378,8 @@ def test_iptables(ip, port, debug=False):
             debug_info.append(f"{status} EVAL: {rule}")
             debug_info.append(f"    Interface: {interface_ok}, IP: {ip_ok}, Port: {port_ok}, State: {state_ok}")
             
-            # Show ipset details if present
+            # Show ipset details if present - use the same function for consistency
+            ipset_result = ipset_matches(rule, ip, debug=False)
             ipset_patterns = [
                 r'-m set --match-set (\S+) src(?:,dst)?',
                 r'-m set --match-set (\S+) dst(?:,src)?',
@@ -393,7 +394,8 @@ def test_iptables(ip, port, debug=False):
                     members = get_ipset_content(set_name)
                     if members:
                         debug_info.append(f"    IPset '{set_name}' contains: {', '.join(members[:5])}{'...' if len(members) > 5 else ''}")
-                        # Check if our IP matches
+                        debug_info.append(f"    ipset_matches() returned: {ipset_result}")
+                        # Check if our IP matches (for comparison)
                         ip_in_set = False
                         try:
                             test_ip = ipaddress.ip_address(ip)
@@ -412,7 +414,7 @@ def test_iptables(ip, port, debug=False):
                                     continue
                         except ValueError:
                             pass
-                        debug_info.append(f"    IP {ip} {'✅ FOUND' if ip_in_set else '❌ NOT FOUND'} in ipset '{set_name}'")
+                        debug_info.append(f"    IP {ip} {'✅ FOUND' if ip_in_set else '❌ NOT FOUND'} in ipset '{set_name}' (manual check)")
                     else:
                         debug_info.append(f"    IPset '{set_name}' is empty or not accessible")
                     break
