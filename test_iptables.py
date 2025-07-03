@@ -191,6 +191,9 @@ def ip_matches(rule, ip):
         Supports both single IPs and CIDR notation networks.
         Also handles ipset matches.
     """
+    # Check if there's an ipset restriction
+    has_ipset = re.search(r'-m set --match-set \S+ src', rule) is not None
+    
     # Check traditional -s source IP matches
     has_source_restriction = '-s' in rule
     source_ip_matches = True
@@ -205,10 +208,24 @@ def ip_matches(rule, ip):
     # Check ipset matches
     ipset_ok = ipset_matches(rule, ip)
     
-    # If both -s and ipset are present, both must match
-    # If only one is present, only that one needs to match
-    # If neither is present, it matches all IPs
-    return source_ip_matches and ipset_ok
+    # Logic:
+    # - If there's an ipset restriction, the IP must be in the ipset
+    # - If there's a -s restriction, the IP must match the -s filter
+    # - If both are present, both must match
+    # - If neither is present, it matches all IPs
+    
+    if has_ipset and has_source_restriction:
+        # Both restrictions present - both must match
+        return source_ip_matches and ipset_ok
+    elif has_ipset:
+        # Only ipset restriction - IP must be in ipset
+        return ipset_ok
+    elif has_source_restriction:
+        # Only -s restriction - IP must match -s
+        return source_ip_matches
+    else:
+        # No restrictions - matches all IPs
+        return True
 
 def port_matches(rule, port):
     """
