@@ -41,12 +41,11 @@ or
 
 No external dependencies required.
 
-Clone the repo and make the script executable:
+Clone the repo:
 
 ```bash
-git clone https://github.com/<your_username>/iptables-access-tester.git
+git clone https://github.com/Clicface/iptables-access-tester.git
 cd iptables-access-tester
-chmod +x test_iptables.py
 ```
 
 ---
